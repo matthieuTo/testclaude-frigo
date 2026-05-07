@@ -15,10 +15,6 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB
 })
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY
-})
-
 app.post('/api/scan-fridge', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
@@ -28,6 +24,10 @@ app.post('/api/scan-fridge', upload.single('image'), async (req, res) => {
     if (!process.env.ANTHROPIC_API_KEY) {
       return res.status(500).json({ error: 'Clé API Anthropic non configurée' })
     }
+
+    const anthropic = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY
+    })
 
     const imageBase64 = req.file.buffer.toString('base64')
     const mimeType = req.file.mimetype || 'image/jpeg'
