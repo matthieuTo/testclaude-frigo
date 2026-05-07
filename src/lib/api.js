@@ -1,23 +1,68 @@
 /**
- * Sends an image file to the backend for fridge scanning.
+ * Converts an image File to a base64 string.
+ */
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result.split(',')[1])
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+/**
+ * Sends an image file to the Anthropic API directly from the browser.
  * Returns an array of detected ingredient strings.
  */
 export async function scanFridge(imageFile) {
-  const formData = new FormData()
-  formData.append('image', imageFile)
+  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
+  if (!apiKey) {
+    throw new Error('Clé API Anthropic non configurée (VITE_ANTHROPIC_API_KEY)')
+  }
 
-  const response = await fetch('/api/scan-fridge', {
+  const imageBase64 = await fileToBase64(imageFile)
+  const mimeType = imageFile.type || 'image/jpeg'
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    body: formData
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: mimeType, data: imageBase64 }
+          },
+          {
+            type: 'text',
+            text: 'Analyze this fridge photo. Return ONLY a JSON array of ingredient names visible, like: ["tomatoes", "cheese", "eggs"]. Be specific but concise. In French if possible.'
+          }
+        ]
+      }]
+    })
   })
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Erreur réseau' }))
-    throw new Error(error.error || `Erreur HTTP ${response.status}`)
+    const error = await response.json().catch(() => ({ error: { message: 'Erreur réseau' } }))
+    throw new Error(error.error?.message || `Erreur HTTP ${response.status}`)
   }
 
   const data = await response.json()
-  return data.ingredients || []
+  const responseText = data.content[0].text.trim()
+  const jsonMatch = responseText.match(/\[[\s\S]*\]/)
+  if (!jsonMatch) {
+    throw new Error('Réponse invalide de Claude')
+  }
+
+  return JSON.parse(jsonMatch[0])
 }
 
 /**
